@@ -22,7 +22,7 @@ import './App.css';
 
 function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
-  
+
   // ◈ SECURITY: MASTER LOCK ◈
   const ADMIN_PASS = import.meta.env.VITE_ADMIN_PASSWORD || 'criador';
   const [isAuthenticated, setIsAuthenticated] = useState(localStorage.getItem('isabellex_auth') === 'true');
@@ -47,42 +47,124 @@ function App() {
   const [videoList, setVideoList] = useState<any[]>([]);
   const [postList, setPostList] = useState<any[]>([]);
   const [agendaList, setAgendaList] = useState<any[]>([]);
-  // Fallback enquanto carrega os dados REAIS:
-  const [stats, setStats] = useState({ acoes: 0, videos: 0, imagens: 0, custoIA: '0.00' }); 
+  const [stats, setStats] = useState({ acoes: 0, videos: 0, imagens: 0, custoIA: '0.00' });
 
-  // Carrega vídeos REAIS armazenados
+  // ◈ DASHBOARD REAL ◈
+  const [sistemaStatus, setSistemaStatus] = useState<any>({
+    pausado: false, total: 0, publicados: 0, pendentes: 0, erros: 0, perdidos: 0, proximoPost: null
+  });
+
+  // ◈ MODAL CRIAR POST ◈
+  const [showModal, setShowModal] = useState(false);
+  const [novoPost, setNovoPost] = useState({ conteudo: '', tipo: 'threads', hora: '' });
+  const [criandoPost, setCriandoPost] = useState(false);
+
+  // ◈ KANBAN DE REELS ◈
+  const [kanbanCards, setKanbanCards] = useState<any[]>([]);
+  const [kanbanLoading, setKanbanLoading] = useState(false);
+  const [temaRoteiro, setTemaRoteiro] = useState('');
+  const [cardExpandido, setCardExpandido] = useState<string | null>(null);
+
+  const carregarKanban = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/kanban`);
+      if (res.ok) setKanbanCards(await res.json());
+    } catch(err) {}
+  };
+
+  const moverCard = async (id: string, novoStatus: string) => {
+    await fetch(`${API_URL}/api/kanban/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: novoStatus })
+    });
+    await carregarKanban();
+  };
+
+  const deletarCard = async (id: string) => {
+    await fetch(`${API_URL}/api/kanban/${id}`, { method: 'DELETE' });
+    await carregarKanban();
+  };
+
+  const gerarRoteiros = async () => {
+    setKanbanLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/reels/gerar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quantidade: 5, tema: temaRoteiro })
+      });
+      if (res.ok) {
+        setTemaRoteiro('');
+        await carregarKanban();
+      }
+    } finally {
+      setKanbanLoading(false);
+    }
+  };
+
   const carregarVideos = async () => {
     try {
       const res = await fetch(`${API_URL}/api/videos`);
       if (res.ok) setVideoList(await res.json());
-    } catch(err) {} 
+    } catch(err) {}
   };
 
-  // Carrega finanças e metricas REAIS de gasto da IA
   const carregarStats = async () => {
     try {
       const r = await fetch(`${API_URL}/api/stats`);
-      if (r.ok) {
-        const s = await r.json();
-        setStats(s);
-      }
+      if (r.ok) setStats(await r.json());
     } catch(e) {}
   };
 
-  // Carrega posts de IMAGEM armazenados
   const carregarPosts = async () => {
     try {
       const res = await fetch(`${API_URL}/api/posts`);
       if (res.ok) setPostList(await res.json());
-    } catch(err) {} 
+    } catch(err) {}
   };
 
-  // Carrega AGENDA COMPLETA
   const carregarAgenda = async () => {
     try {
       const res = await fetch(`${API_URL}/api/agenda`);
       if (res.ok) setAgendaList(await res.json());
-    } catch(err) {} 
+    } catch(err) {}
+  };
+
+  const carregarSistemaStatus = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/sistema/status`);
+      if (res.ok) setSistemaStatus(await res.json());
+    } catch(err) {}
+  };
+
+  const togglePausa = async () => {
+    const endpoint = sistemaStatus.pausado ? '/api/sistema/retomar' : '/api/sistema/pausar';
+    await fetch(`${API_URL}${endpoint}`, { method: 'POST' });
+    await carregarSistemaStatus();
+  };
+
+  const criarPost = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCriandoPost(true);
+    try {
+      const horaISO = novoPost.hora
+        ? new Date(`${new Date().toISOString().split('T')[0]}T${novoPost.hora}:00`).toISOString()
+        : new Date().toISOString();
+      const res = await fetch(`${API_URL}/api/agenda`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conteudo: novoPost.conteudo, tipo: novoPost.tipo, scheduled_for: horaISO })
+      });
+      if (res.ok) {
+        setShowModal(false);
+        setNovoPost({ conteudo: '', tipo: 'threads', hora: '' });
+        await carregarAgenda();
+        await carregarSistemaStatus();
+      }
+    } finally {
+      setCriandoPost(false);
+    }
   };
 
   useEffect(() => {
@@ -90,7 +172,16 @@ function App() {
     carregarVideos();
     carregarPosts();
     carregarAgenda();
+    carregarSistemaStatus();
+
+    // ◈ AUTO-REFRESH a cada 60s ◈
+    const interval = setInterval(() => {
+      carregarAgenda();
+      carregarSistemaStatus();
+    }, 60000);
+    return () => clearInterval(interval);
   }, []);
+
 
   const fazerUploadVideo = async (e: any) => {
     if (!e.target.files[0]) return;
@@ -163,16 +254,29 @@ function App() {
             <Bot size={20} />
             <span>Logs da OpenAI</span>
           </div>
+          <div className={`nav-item ${activeTab === 'kanban' ? 'active' : ''}`} onClick={() => { setActiveTab('kanban'); carregarKanban(); }} style={{background: activeTab==='kanban' ? 'linear-gradient(135deg,rgba(62,139,255,0.15),rgba(188,24,136,0.15))':undefined}}>
+            <Camera size={20} />
+            <span>Roteiros IA</span>
+          </div>
           <div className={`nav-item ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}>
             <Settings size={20} />
             <span>Configurações</span>
           </div>
         </div>
 
+
         <div className="sidebar-footer">
-          <div className="system-status">
-            <div className="status-dot"></div>
-            SISTEMA OPERANTE
+          <div className="system-status" style={{flexDirection:'column', alignItems:'flex-start', gap:'10px'}}>
+            <div style={{display:'flex', alignItems:'center', gap:'8px'}}>
+              <div className="status-dot" style={{background: sistemaStatus.pausado ? '#ff4444' : undefined}}></div>
+              {sistemaStatus.pausado ? 'SISTEMA PAUSADO' : 'SISTEMA OPERANTE'}
+            </div>
+            <button
+              onClick={togglePausa}
+              style={{background: sistemaStatus.pausado ? 'rgba(50,200,50,0.15)' : 'rgba(255,50,50,0.15)', border: `1px solid ${sistemaStatus.pausado ? '#32c832' : '#ff3232'}`, color: sistemaStatus.pausado ? '#32c832' : '#ff6666', borderRadius:'6px', padding:'6px 12px', cursor:'pointer', fontSize:'12px', width:'100%'}}
+            >
+              {sistemaStatus.pausado ? '▶ Retomar' : '⏸ Pausar Tudo'}
+            </button>
           </div>
         </div>
       </nav>
@@ -186,9 +290,14 @@ function App() {
           </div>
           {activeTab === 'dashboard' && (
             <div className="actions">
-              <button className="btn-secondary" onClick={carregarStats}>Refresh Stats</button>
-              <button className="btn-primary" style={{display: 'flex', gap: '8px', alignItems:'center'}}>
-                <PlayCircle size={18} /> Forçar Loop Agora
+              <button className="btn-secondary" onClick={() => { carregarStats(); carregarSistemaStatus(); }}>Refresh</button>
+              <button className="btn-primary" style={{display: 'flex', gap: '8px', alignItems:'center'}} onClick={async (e) => {
+                const btn = e.currentTarget; btn.innerText = '⏳...';
+                await fetch(`${API_URL}/api/cron/trigger`);
+                await carregarSistemaStatus(); await carregarAgenda();
+                btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg> Forçar Loop';
+              }}>
+                <PlayCircle size={18} /> Forçar Loop
               </button>
             </div>
           )}
@@ -201,6 +310,9 @@ function App() {
           )}
           {activeTab === 'agenda' && (
             <div className="actions" style={{display: 'flex', gap: '10px'}}>
+              <button className="btn-primary" onClick={() => setShowModal(true)} style={{display:'flex',gap:'6px',alignItems:'center',background:'linear-gradient(135deg,#3E8BFF,#bc1888)'}}>
+                + Novo Post
+              </button>
               <button className="btn-secondary" onClick={async (e) => {
                 const btn = e.currentTarget;
                 btn.innerText = '⏳ Gerando...';
@@ -223,9 +335,67 @@ function App() {
           )}
         </header>
 
+        {/* MODAL CRIAR POST */}
+        {showModal && (
+          <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <div style={{background:'#151515',border:'1px solid #333',borderRadius:'14px',padding:'32px',width:'480px',maxWidth:'90vw'}}>
+              <h3 style={{color:'#fff',marginBottom:'20px',fontFamily:'inherit'}}>Novo Post Manual</h3>
+              <form onSubmit={criarPost}>
+                <textarea
+                  placeholder="Texto do post... (máx 500 chars no Threads)"
+                  value={novoPost.conteudo}
+                  onChange={e => setNovoPost(p => ({...p, conteudo: e.target.value}))}
+                  maxLength={500}
+                  rows={6}
+                  style={{width:'100%',background:'#000',border:'1px solid #444',color:'#fff',padding:'12px',borderRadius:'8px',resize:'vertical',fontFamily:'inherit',marginBottom:'12px'}}
+                />
+                <div style={{display:'flex',gap:'12px',marginBottom:'20px'}}>
+                  <select value={novoPost.tipo} onChange={e => setNovoPost(p => ({...p, tipo: e.target.value}))} style={{flex:1,background:'#000',border:'1px solid #444',color:'#fff',padding:'10px',borderRadius:'8px'}}>
+                    <option value="threads">Threads</option>
+                    <option value="feed_foto">Feed (Foto)</option>
+                    <option value="story_foto">Story</option>
+                  </select>
+                  <input type="time" value={novoPost.hora} onChange={e => setNovoPost(p => ({...p, hora: e.target.value}))} style={{flex:1,background:'#000',border:'1px solid #444',color:'#fff',padding:'10px',borderRadius:'8px'}} />
+                </div>
+                <div style={{display:'flex',gap:'12px'}}>
+                  <button type="button" onClick={() => setShowModal(false)} className="btn-secondary" style={{flex:1}}>Cancelar</button>
+                  <button type="submit" className="btn-primary" style={{flex:1}} disabled={criandoPost}>{criandoPost ? '⏳ Salvando...' : '✓ Agendar'}</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
         {activeTab === 'dashboard' && (
           <section className="dashboard-grid">
-            
+
+            {/* STATUS REAL DO SISTEMA */}
+            <div className="glass-panel stats-card" style={{gridColumn:'1/-1',display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:'16px'}}>
+              {[
+                {label:'Publicados',val:sistemaStatus.publicados,color:'#32c832'},
+                {label:'Pendentes',val:sistemaStatus.pendentes,color:'#3E8BFF'},
+                {label:'Erros',val:sistemaStatus.erros,color:'#ff4444'},
+                {label:'Perdidos',val:sistemaStatus.perdidos,color:'#888'},
+                {label:'Total',val:sistemaStatus.total,color:'#bc1888'},
+              ].map(({label,val,color}) => (
+                <div key={label} style={{textAlign:'center'}}>
+                  <div style={{fontSize:'32px',fontWeight:'700',color,fontFamily:'monospace'}}>{val}</div>
+                  <div style={{color:'#888',fontSize:'12px',marginTop:'4px'}}>{label}</div>
+                </div>
+              ))}
+            </div>
+
+            {sistemaStatus.proximoPost && (
+              <div className="glass-panel stats-card" style={{gridColumn:'1/-1',display:'flex',alignItems:'center',gap:'16px',background:'linear-gradient(135deg,rgba(62,139,255,0.15),rgba(10,10,10,0.8))'}}>
+                <Clock size={28} color="#3E8BFF"/>
+                <div>
+                  <div style={{color:'#888',fontSize:'12px',marginBottom:'4px'}}>PRÓXIMO POST</div>
+                  <div style={{color:'#fff',fontWeight:'600'}}>{sistemaStatus.proximoPost.dia_semana?.toUpperCase()} {sistemaStatus.proximoPost.hora_formatada} — {sistemaStatus.proximoPost.tipo?.toUpperCase()}</div>
+                  <div style={{color:'#aaa',fontSize:'13px',marginTop:'4px'}}>{sistemaStatus.proximoPost.conteudo?.substring(0,80)}...</div>
+                </div>
+              </div>
+            )}
+
             <div className="glass-panel stats-card">
               <div className="stat-header">
                 <span className="title-display">Gasto Operacional</span>
@@ -485,6 +655,81 @@ function App() {
                         borderRadius: '4px'
                       }}>AGUARDANDO UPLOAD DO VÍDEO</span>
                     </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </main>
+      )}
+
+      {/* ◈ KANBAN DE REELS ◈ */}
+      {activeTab === 'kanban' && (
+        <main className="main-content">
+          <header className="topbar">
+            <div className="greeting">
+              <h2>Roteiros de Reels — Kanban ◈</h2>
+              <p>Isabellex gera os roteiros. O Criador grava. A máquina posta.</p>
+            </div>
+            <div className="actions" style={{display:'flex',gap:'10px',alignItems:'center'}}>
+              <input
+                type="text"
+                placeholder="Tema (opcional)..."
+                value={temaRoteiro}
+                onChange={e => setTemaRoteiro(e.target.value)}
+                onKeyDown={e => e.key==='Enter' && gerarRoteiros()}
+                style={{background:'#111',border:'1px solid #333',color:'#fff',padding:'10px 14px',borderRadius:'8px',width:'200px',outline:'none'}}
+              />
+              <button className="btn-primary" onClick={gerarRoteiros} disabled={kanbanLoading} style={{display:'flex',gap:'8px',alignItems:'center'}}>
+                <Bot size={18}/> {kanbanLoading ? 'Gerando...' : 'Gerar Roteiros'}
+              </button>
+            </div>
+          </header>
+
+          {/* BOARD 4 COLUNAS */}
+          <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:'16px',padding:'24px',height:'calc(100vh - 100px)',overflowY:'auto'}}>
+            {[
+              {key:'ideia', label:'💡 Ideias',color:'#bc1888'},
+              {key:'a_gravar', label:'🎬 A Gravar',color:'#f5a623'},
+              {key:'gravado', label:'✅ Gravado',color:'#3E8BFF'},
+              {key:'publicado', label:'🚀 Publicado',color:'#32c832'},
+            ].map(col => {
+              const cards = kanbanCards.filter(c => c.status === col.key);
+              return (
+                <div key={col.key} style={{background:'rgba(255,255,255,0.03)',borderRadius:'12px',border:`1px solid ${col.color}33`,padding:'12px',display:'flex',flexDirection:'column',gap:'10px'}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'4px'}}>
+                    <span style={{fontWeight:'700',color:col.color,fontSize:'13px'}}>{col.label}</span>
+                    <span style={{background:`${col.color}22`,color:col.color,borderRadius:'10px',padding:'2px 8px',fontSize:'11px'}}>{cards.length}</span>
+                  </div>
+
+                  {cards.map(card => (
+                    <div key={card.id} style={{background:'#151515',border:'1px solid #2a2a2a',borderRadius:'10px',padding:'14px',cursor:'pointer'}} onClick={() => setCardExpandido(cardExpandido===card.id ? null : card.id)}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'8px'}}>
+                        <span style={{color:'#fff',fontWeight:'600',fontSize:'13px',lineHeight:'1.3',flex:1}}>{card.titulo}</span>
+                        <button onClick={e => {e.stopPropagation(); deletarCard(card.id);}} style={{background:'none',border:'none',color:'#555',cursor:'pointer',padding:'0 0 0 8px',fontSize:'14px'}}>✕</button>
+                      </div>
+
+                      {card.gancho && (
+                        <div style={{background:'rgba(188,24,136,0.1)',border:'1px solid rgba(188,24,136,0.3)',borderRadius:'6px',padding:'6px 10px',marginBottom:'8px',fontSize:'11px',color:'#e879b0'}}>🎯 {card.gancho}</div>
+                      )}
+
+                      {cardExpandido === card.id && (
+                        <div style={{color:'#bbb',fontSize:'12px',lineHeight:'1.6',marginBottom:'10px',borderTop:'1px solid #222',paddingTop:'10px',whiteSpace:'pre-wrap'}}>{card.roteiro}</div>
+                      )}
+
+                      <div style={{display:'flex',gap:'6px',flexWrap:'wrap',marginTop:'8px'}}>
+                        {col.key !== 'ideia' && <button onClick={e=>{e.stopPropagation();moverCard(card.id,'ideia');}} style={{fontSize:'10px',padding:'3px 8px',borderRadius:'4px',border:'1px solid #333',background:'none',color:'#888',cursor:'pointer'}}>← Ideia</button>}
+                        {col.key !== 'a_gravar' && <button onClick={e=>{e.stopPropagation();moverCard(card.id,'a_gravar');}} style={{fontSize:'10px',padding:'3px 8px',borderRadius:'4px',border:'1px solid #f5a62355',background:'none',color:'#f5a623',cursor:'pointer'}}>🎬 Gravar</button>}
+                        {col.key !== 'gravado' && <button onClick={e=>{e.stopPropagation();moverCard(card.id,'gravado');}} style={{fontSize:'10px',padding:'3px 8px',borderRadius:'4px',border:'1px solid #3E8BFF55',background:'none',color:'#3E8BFF',cursor:'pointer'}}>✅ Gravado</button>}
+                        {col.key !== 'publicado' && <button onClick={e=>{e.stopPropagation();moverCard(card.id,'publicado');}} style={{fontSize:'10px',padding:'3px 8px',borderRadius:'4px',border:'1px solid #32c83255',background:'none',color:'#32c832',cursor:'pointer'}}>🚀 Publicado</button>}
+                      </div>
+
+                      <div style={{marginTop:'8px',fontSize:'10px',color:'#555'}}>{card.duracao_seg}s · {new Date(card.criado_em).toLocaleDateString('pt-BR')}</div>
+                    </div>
+                  ))}
+
+                  {cards.length === 0 && (
+                    <div style={{color:'#333',fontSize:'12px',textAlign:'center',padding:'20px 0',fontStyle:'italic'}}>Vazio ◈</div>
                   )}
                 </div>
               );

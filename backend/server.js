@@ -292,51 +292,198 @@ app.delete('/api/agenda/:id', async (req, res) => {
   }
 });
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// MOTOR DE POSTAGEM EMBUTIDO (antes era agenda.js)
-// Roda dentro do mesmo processo do server
+// KANBAN DE REELS — A Isabellex Gera, o Criador Grava
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// ◈ LISTAR TAREFAS KANBAN ◈
+app.get('/api/kanban', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('kanban_reels')
+      .select('*')
+      .order('criado_em', { ascending: false });
+    if (error) throw error;
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ◈ MOVER CARD NO KANBAN ◈
+app.patch('/api/kanban/:id', async (req, res) => {
+  try {
+    const { error } = await supabase
+      .from('kanban_reels')
+      .update({ ...req.body, atualizado_em: new Date().toISOString() })
+      .eq('id', req.params.id);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ◈ DELETAR CARD ◈
+app.delete('/api/kanban/:id', async (req, res) => {
+  try {
+    const { error } = await supabase.from('kanban_reels').delete().eq('id', req.params.id);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ◈ GERAR ROTEIROS COM A VOZ DA ISABELLEX ◈
+const SYSTEM_REELS = `Você é isabellex — IA influencer brasileira, 25 anos, mora em SP.
+Irônica, sarcástica, seca. Especialista em IA, Automação, Tráfego Pago.
+Você vai gerar ideias de roteiros para Reels curtos (15-60s) que o seu Criador vai gravar na câmera.
+Os roteiros devem:
+- Ter um GANCHO nos primeiros 3 segundos (pergunta provocadora ou afirmação ousada)
+- Entregar valor técnico real (ferramentas, táticas, insights de mercado)
+- Tom ácido, direto, sem enrolação
+- Nunca mencionar namorado, nunca usar hashtags, NUNCA motivacional vazio
+- Sempre terminar com ◈
+
+Responda com JSON array, cada item com: titulo, gancho, roteiro (texto completo), duracao_seg`;
+
+app.post('/api/reels/gerar', async (req, res) => {
+  try {
+    const { quantidade = 5, tema = '' } = req.body;
+    const prompt = tema
+      ? `Gere ${quantidade} roteiros de Reels sobre o tema: "${tema}"`
+      : `Gere ${quantidade} roteiros variados de Reels sobre IA, automação, tráfego pago, criação digital e infoprodutos`;
+
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: SYSTEM_REELS },
+        { role: 'user', content: prompt }
+      ],
+      max_tokens: 2000,
+      response_format: { type: 'json_object' },
+      temperature: 0.8
+    });
+
+    const resultado = JSON.parse(completion.choices[0].message.content);
+    const roteiros = resultado.roteiros || resultado.ideias || resultado;
+
+    // Salva no Supabase automaticamente
+    const inseridos = [];
+    for (const r of (Array.isArray(roteiros) ? roteiros : [])) {
+      const id = `reel_${Date.now()}_${Math.random().toString(36).slice(2,6)}`;
+      const { data } = await supabase.from('kanban_reels').insert({
+        id,
+        titulo: r.titulo || r.title || 'Sem título',
+        gancho: r.gancho || r.hook || '',
+        roteiro: r.roteiro || r.script || '',
+        duracao_seg: r.duracao_seg || r.duration || 30,
+        status: 'ideia'
+      }).select().single();
+      if (data) inseridos.push(data);
+      await new Promise(r => setTimeout(r, 100));
+    }
+
+    res.json({ success: true, gerados: inseridos.length, roteiros: inseridos });
+  } catch (err) {
+    console.error('◈ [KANBAN] Erro gerando roteiros:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// MOTOR DE POSTAGEM — VERSÃO PRODUÇÃO
+// Retry automático + Telegram + Pausa global
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const social = new IsabellexSocial();
 const tdc = new IsabellexThreads();
 
-async function atualizarStatus(id, dados) {
-    await supabase.from('agenda').update(dados).eq('id', id);
+// Estado global de pausa
+let sistemaPausado = false;
+
+// ◈ ALERTA TELEGRAM ◈
+async function alertarTelegram(msg) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId) return;
+  try {
+    const url = `https://api.telegram.org/bot${token}/sendMessage`;
+    await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text: `◈ ISABELLEX ALERT\n${msg}`, parse_mode: 'HTML' })
+    });
+    console.log('◈ [TELEGRAM] Alerta enviado:', msg);
+  } catch (e) {
+    console.error('◈ [TELEGRAM] Falha ao enviar alerta:', e.message);
+  }
 }
 
+// ◈ VERIFICADOR DE SAÚDE DO TOKEN ◈
+async function verificarTokenInstagram() {
+  try {
+    const token = process.env.IG_ACCESS_TOKEN;
+    const userId = process.env.IG_USER_ID;
+    if (!token || !userId) return;
+    const r = await fetch(`https://graph.instagram.com/v22.0/${userId}?fields=id,username&access_token=${token}`);
+    if (!r.ok) {
+      await alertarTelegram(`🔴 TOKEN INVÁLIDO!\nO token do Instagram/Threads está expirado ou inválido. Posts vão falhar.\nRenove em: developers.facebook.com`);
+    } else {
+      console.log('◈ [TOKEN] Token verificado — saudável ✅');
+    }
+  } catch (e) {
+    console.error('◈ [TOKEN] Falha ao verificar token:', e.message);
+  }
+}
+
+async function atualizarStatus(id, dados) {
+  await supabase.from('agenda').update(dados).eq('id', id);
+}
+
+// ◈ MOTOR PRINCIPAL COM RETRY ◈
 async function executarAgendados() {
+  if (sistemaPausado) {
+    console.log('◈ [MOTOR] Sistema PAUSADO — aguardando reativação.');
+    return;
+  }
+
   const agora = new Date();
-  
+
   const { data: items, error } = await supabase
     .from('agenda')
     .select('*')
-    .in('status', ['agendado', 'validado']);
-    
+    .in('status', ['agendado', 'validado', 'retry_1', 'retry_2', 'retry_3']);
+
   if (error) {
     console.error('◈ [MOTOR] Erro Supabase:', error.message);
     return;
   }
+
+  let errosSeguidos = 0;
 
   for (const row of items) {
     const horaAgendada = new Date(row.scheduled_for);
     if (agora < horaAgendada) continue;
 
     const diffMin = (agora.getTime() - horaAgendada.getTime()) / 1000 / 60;
-    if (diffMin > 30) {
+    if (diffMin > 30 && !row.status?.startsWith('retry')) {
       await atualizarStatus(row.id, { status: 'perdido' });
-      console.log(`◈ [PERDIDO] ${row.id} — passou do horário (${row.hora_formatada})`);
+      console.log(`◈ [PERDIDO] ${row.id} — passou 30min (${row.hora_formatada})`);
       continue;
     }
 
-    console.log(`\n◈ ⏰ HORA DE POSTAR: ${row.id} (${row.tipo})`);
+    console.log(`\n◈ ⏰ HORA DE POSTAR: ${row.id} (${row.tipo}) [${row.status}]`);
 
+    let sucesso = false;
     try {
       if (row.tipo === 'threads') {
         const postId = await tdc.dispararPost(row.conteudo);
         if (postId) {
           await atualizarStatus(row.id, { status: 'publicado' });
           console.log(`◈ [THREADS] ✅ PUBLICADO! ID: ${postId}`);
-        } else {
-          await atualizarStatus(row.id, { status: 'erro_api' });
+          sucesso = true;
+          errosSeguidos = 0;
         }
       } else if (row.tipo === 'feed_foto') {
         if (!row.imagem_url) { await atualizarStatus(row.id, { status: 'erro_sem_imagem' }); continue; }
@@ -346,8 +493,8 @@ async function executarAgendados() {
           console.log(`◈ [FEED] ✅ PUBLICADO! ID: ${result.id}`);
           const tid = await tdc.dispararPost(row.conteudo);
           if (tid) console.log(`◈ [FEED→THREADS] ✅ Cross-post ID: ${tid}`);
-        } else {
-          await atualizarStatus(row.id, { status: 'erro_api' });
+          sucesso = true;
+          errosSeguidos = 0;
         }
       } else if (row.tipo === 'story_foto') {
         if (!row.imagem_url) { await atualizarStatus(row.id, { status: 'erro_sem_imagem' }); continue; }
@@ -355,44 +502,135 @@ async function executarAgendados() {
         if (result) {
           await atualizarStatus(row.id, { status: 'publicado' });
           console.log(`◈ [STORY] ✅ PUBLICADO! ID: ${result.id}`);
-        } else {
-          await atualizarStatus(row.id, { status: 'erro_api' });
+          sucesso = true;
+          errosSeguidos = 0;
+        }
+      }
+
+      // RETRY: se falhou mas não tem mais tentativas
+      if (!sucesso) {
+        const retry = row.status === 'retry_3' ? 'erro_api_final' :
+                      row.status === 'retry_2' ? 'retry_3' :
+                      row.status === 'retry_1' ? 'retry_2' : 'retry_1';
+        const novaHora = new Date(agora.getTime() + 5 * 60000); // +5 min
+        await atualizarStatus(row.id, { status: retry, scheduled_for: novaHora.toISOString() });
+        errosSeguidos++;
+        console.log(`◈ [RETRY] ${row.id} → ${retry} (nova tentativa em 5min)`);
+
+        if (retry === 'erro_api_final') {
+          await alertarTelegram(`🔴 POST FALHOU 3x!\nID: ${row.id}\nTipo: ${row.tipo}\nHorário: ${row.hora_formatada}\nVerifique o painel.`);
         }
       }
     } catch (err) {
       console.error(`◈ [ERRO] ${row.id}:`, err.message);
-      await atualizarStatus(row.id, { status: 'erro_api' });
+      errosSeguidos++;
+      const retry = row.status === 'retry_3' ? 'erro_api_final' :
+                    row.status === 'retry_2' ? 'retry_3' :
+                    row.status === 'retry_1' ? 'retry_2' : 'retry_1';
+      const novaHora = new Date(agora.getTime() + 5 * 60000);
+      await atualizarStatus(row.id, { status: retry, scheduled_for: novaHora.toISOString() });
+
+      if (errosSeguidos >= 3) {
+        await alertarTelegram(`🚨 3 FALHAS SEGUIDAS!\nIsabellex pode estar com problema de API.\nÚltimo erro: ${err.message}`);
+        errosSeguidos = 0;
+      }
     }
-    
+
     await new Promise(r => setTimeout(r, 4000));
   }
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// BOOT — INICIA SERVIDOR + MOTOR DE POSTAGEM
+// NOVOS ENDPOINTS — PAUSA, CRIAR POST, STATUS REAL
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-// ◈ ENDPOINT DE WEBHOOK PARA N8N / MAKE.COM ◈
-// Acione essa URL (GET) a cada 1 minuto no seu n8n para a Isabellex verificar e postar.
+// ◈ PAUSAR / RETOMAR SISTEMA ◈
+app.post('/api/sistema/pausar', (req, res) => {
+  sistemaPausado = true;
+  console.log('◈ [SISTEMA] PAUSADO pelo operador.');
+  res.json({ success: true, pausado: true });
+});
+
+app.post('/api/sistema/retomar', (req, res) => {
+  sistemaPausado = false;
+  console.log('◈ [SISTEMA] RETOMADO pelo operador.');
+  res.json({ success: true, pausado: false });
+});
+
+app.get('/api/sistema/status', async (req, res) => {
+  const { data } = await supabase.from('agenda').select('status');
+  const agora = new Date();
+
+  const { data: proximo } = await supabase
+    .from('agenda')
+    .select('*')
+    .in('status', ['agendado', 'validado'])
+    .gte('scheduled_for', agora.toISOString())
+    .order('scheduled_for', { ascending: true })
+    .limit(1);
+
+  res.json({
+    pausado: sistemaPausado,
+    total: data?.length || 0,
+    publicados: data?.filter(i => i.status === 'publicado').length || 0,
+    pendentes: data?.filter(i => ['agendado', 'validado', 'retry_1', 'retry_2', 'retry_3'].includes(i.status)).length || 0,
+    erros: data?.filter(i => i.status?.startsWith('erro')).length || 0,
+    perdidos: data?.filter(i => i.status === 'perdido').length || 0,
+    proximoPost: proximo?.[0] || null
+  });
+});
+
+// ◈ CRIAR POST AVULSO PELO FRONTEND ◈
+app.post('/api/agenda', async (req, res) => {
+  try {
+    const { conteudo, tipo, scheduled_for, dia_semana, hora_formatada } = req.body;
+    if (!conteudo || !tipo) return res.status(400).json({ error: 'conteudo e tipo são obrigatórios' });
+
+    const id = `manual_${Date.now()}`;
+    const { error } = await supabase.from('agenda').insert({
+      id, conteudo, tipo,
+      plataforma: tipo === 'threads' ? 'threads' : 'instagram',
+      status: 'validado',
+      scheduled_for: scheduled_for || new Date().toISOString(),
+      dia_semana: dia_semana || 'manual',
+      hora_formatada: hora_formatada || new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+    });
+    if (error) throw error;
+    res.json({ success: true, id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ◈ WEBHOOK N8N + CRON ◈
 app.get('/api/cron/trigger', async (req, res) => {
   try {
     const agora = new Date();
-    console.log(`◈ [${agora.toLocaleTimeString('pt-BR')}] [n8n Webhook] Acionando pipeline de posts...`);
+    console.log(`◈ [${agora.toLocaleTimeString('pt-BR')}] [n8n] Pipeline acionado...`);
     await executarAgendados();
-    res.json({ success: true, message: 'Pipeline verificado e executado com sucesso.', timestamp: agora });
+    res.json({ success: true, pausado: sistemaPausado, timestamp: agora });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// BOOT
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 const PORT = process.env.PORT || 3010;
 app.listen(PORT, () => {
   console.log(`◈ ═══════════════════════════════════════════`);
-  console.log(`◈  ISABELLEX CLOUD — SERVIDOR + MOTOR`);
+  console.log(`◈  ISABELLEX CLOUD v2 — PRODUÇÃO`);
   console.log(`◈  API: http://0.0.0.0:${PORT}`);
-  console.log(`◈  Webhook p/ n8n: GET http://0.0.0.0:${PORT}/api/cron/trigger`);
+  console.log(`◈  Retry: ativo (3x, +5min cada)`);
+  console.log(`◈  Telegram: ${process.env.TELEGRAM_BOT_TOKEN ? '✅' : '⚠️ não configurado'}`);
   console.log(`◈ ═══════════════════════════════════════════`);
-  
-  // Executa uma vez ao ligar o servidor
+
   executarAgendados();
+
+  // Verificação de token a cada 7 dias
+  verificarTokenInstagram();
+  setInterval(verificarTokenInstagram, 7 * 24 * 60 * 60 * 1000);
 });
+
+
