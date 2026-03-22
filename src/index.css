@@ -1,0 +1,128 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
+:root {
+  --bg-primary: #020202;
+  --bg-secondary: #0a0a0c;
+  --text-primary: #ffffff;
+  --text-secondary: #a0a0a0;
+  
+  --accent-blue: #3E8BFF;
+  --accent-purple: #8B4DFF;
+  --accent-insta-1: #f09433;
+  --accent-insta-2: #dc2743;
+  --accent-insta-3: #bc1888;
+  
+  --glass-bg: rgba(20, 20, 20, 0.6);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  
+  --font-main: 'Outfit', sans-serif;
+  --font-mono: 'Space Grotesk', monospace;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-main);
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-image: 
+    radial-gradient(circle at top left, rgba(139, 77, 255, 0.08), transparent 40%),
+    radial-gradient(circle at bottom right, rgba(220, 39, 67, 0.05), transparent 40%),
+    url('https://www.transparenttextures.com/patterns/cubes.png');
+  background-attachment: fixed;
+  overflow-x: hidden;
+}
+
+::selection {
+  background-color: var(--accent-insta-3);
+  color: white;
+}
+
+/* Glassmorphism Classes */
+.glass-panel {
+  background: linear-gradient(145deg, rgba(30,30,30,0.7), rgba(10,10,10,0.8));
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
+  border-radius: 20px;
+  padding: 28px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.glass-panel:hover {
+  box-shadow: 0 15px 40px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.1);
+}
+
+.title-display {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+a {
+  color: var(--accent-insta-3);
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+
+button {
+  font-family: var(--font-main);
+  cursor: pointer;
+  border: none;
+  border-radius: 12px;
+  font-weight: 600;
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.btn-primary {
+  background: linear-gradient(45deg, var(--accent-insta-1), var(--accent-insta-2), var(--accent-insta-3));
+  color: white;
+  padding: 12px 24px;
+  box-shadow: 0 4px 15px rgba(220, 39, 67, 0.3);
+  background-size: 200% auto;
+}
+
+.btn-primary:hover {
+  background-position: right center;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(220, 39, 67, 0.5);
+}
+
+.btn-secondary {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+  padding: 12px 24px;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+
+.btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.1);
+  transform: translateY(-1px);
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent; 
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.1); 
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255,255,255,0.2); 
+}

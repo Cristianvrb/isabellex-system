@@ -1,0 +1,10 @@
+{
+  "id": "post_mirror_selfie",
+  "type": "image",
+  "imagePath": "C:\\Users\\crist\\.gemini\\antigravity\\scratch\\isabellex-dashboard\\backend\\drive_posts\\isabellex_mirror_selfie.png",
+  "urlMock": "https://mmgcaadogqjtzumwmyec.supabase.co/storage/v1/object/public/media/post_mirror_selfie_1774168062436.png",
+  "legenda": "Tentando provar pro algoritmo que essa de fato sou eu. ????? #aiinfluencer #mirrorselfie ?",
+  "status": "pendente_agendamento",
+  "scheduledFor": "2026-03-22T18:00:00.000Z",
+  "createdAt": "2026-03-22T08:27:43.573Z"
+}

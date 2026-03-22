@@ -1,0 +1,27 @@
+[
+  {
+    "id_estilo": "quarto_minimalista",
+    "descricao": "A foto banal no próprio quarto, espelho de chão.",
+    "prompt_base": "A casual mirror selfie of a young Brazilian woman in a minimalist dark bedroom. She is wearing an oversized black vintage t-shirt and dark jeans. Cold neon lighting reflecting subtly on the mirror. Messy unmade bed in the background. She is holding her phone, looking straight into the mirror with a bored, unbothered expression. Pale blue-grey eyes, dark straight hair. Hyper-realistic, grainy film aesthetic, moody, 35mm photography."
+  },
+  {
+    "id_estilo": "cafe_vazio",
+    "descricao": "Sentada em um café hipster vazio, porque multidão é para pessoas felizes.",
+    "prompt_base": "A candid candid photo of a young Brazilian woman sitting alone at a small round table in a brutalist, empty coffee shop. She has a cup of black coffee in front of her. She is looking away from the camera out of a rainy window. Wearing a simple black turtleneck. Pale blue-grey eyes, dark straight hair, natural matte skin with scattered freckles. Cold natural light, cinematic, realistic textures, shot on iPhone, unedited vibe."
+  },
+  {
+    "id_estilo": "elevador_noite",
+    "descricao": "A classic selfie no espelho do elevador, vibes meia-noite.",
+    "prompt_base": "An elevator mirror selfie of a slim young Brazilian woman. Late at night. Harsh overhead elevator lighting casting dramatic shadows. She is wearing a modern dark blazer over a white top. Gold hoop earrings visible. She stares directly into the phone lens with a deadpan, serious facial expression. Muted color palette, slightly blurry motion glitch, authentic gen-z influencer aesthetic."
+  },
+  {
+    "id_estilo": "monitor_glow",
+    "descricao": "Vibe coding as 2 da manhã.",
+    "prompt_base": "A candid shot of a young Brazilian woman working on a laptop in a pitch-black room. The only light source is the cool blue glow of the monitor illuminating her face. She has long black straight hair, prominent cheekbones, and striking pale blue-grey eyes reflecting the screen. She is focused, not smiling. Cyber-adjacent, stark contrast, moody tech aesthetic, hyper-detailed skin texture."
+  },
+  {
+    "id_estilo": "rua_cyberpunk_light",
+    "descricao": "Na rua à noite, iluminada apenas pelos faróis de neon das lojas.",
+    "prompt_base": "Street photography of a young Brazilian woman standing on a wet urban street at night. Illuminated by blurred neon signage in the deep background (purple and blue tones). She wears a sleek dark trench coat. She looks directly at the camera with an intense, calm stare. Her dark hair is slightly windblown. Raindrops on the camera lens. Cinematic lighting, photorealistic, 8k resolution, raw photo."
+  }
+]

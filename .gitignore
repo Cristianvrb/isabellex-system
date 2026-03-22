@@ -1,0 +1,8 @@
+node_modules/
+.env
+backend/.env
+backend/uploads/
+backend/drive_agenda/
+dist/
+*.log
+.DS_Store
