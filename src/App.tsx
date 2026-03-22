@@ -22,8 +22,8 @@ import './App.css';
 
 function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
-  // URL da API — usa variável de ambiente em produção (Vercel), localhost em dev
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3010';
+  // URL da API — usa variável de ambiente em produção (Vercel), Render URL fixa para evitar crash
+  const API_URL = import.meta.env.VITE_API_URL || 'https://isabellex-system.onrender.com';
 
   const [videoList, setVideoList] = useState<any[]>([]);
   const [postList, setPostList] = useState<any[]>([]);
