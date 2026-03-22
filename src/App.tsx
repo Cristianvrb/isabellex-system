@@ -22,6 +22,25 @@ import './App.css';
 
 function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
+  
+  // ◈ SECURITY: MASTER LOCK ◈
+  const ADMIN_PASS = import.meta.env.VITE_ADMIN_PASSWORD || 'criador';
+  const [isAuthenticated, setIsAuthenticated] = useState(localStorage.getItem('isabellex_auth') === 'true');
+  const [passInput, setPassInput] = useState('');
+  const [loginError, setLoginError] = useState('');
+
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (passInput === ADMIN_PASS) {
+      localStorage.setItem('isabellex_auth', 'true');
+      setIsAuthenticated(true);
+      setLoginError('');
+    } else {
+      setLoginError('Acesso Negado. Tentativa computada.');
+      setPassInput('');
+    }
+  };
+
   // URL da API — usa variável de ambiente em produção (Vercel), Render URL fixa para evitar crash
   const API_URL = import.meta.env.VITE_API_URL || 'https://isabellex-system.onrender.com';
 
@@ -87,6 +106,29 @@ function App() {
       console.error('Falha de envio', err);
     }
   };
+
+  if (!isAuthenticated) {
+    return (
+      <div className="login-container" style={{height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0a0a0a', flexDirection: 'column'}}>
+        <div style={{background: '#151515', padding: '40px', borderRadius: '12px', border: '1px solid #333', textAlign: 'center', width: '300px', boxShadow: '0 10px 30px rgba(0,0,0,0.5)'}}>
+          <Bot size={48} color="#bc1888" style={{marginBottom: '20px'}}/>
+          <h2 style={{color: '#fff', marginBottom: '25px', fontFamily: 'inherit', letterSpacing: '2px'}}>isabellex.sys</h2>
+          <form onSubmit={handleLogin}>
+            <input 
+              type="password" 
+              placeholder="Master Password" 
+              value={passInput}
+              onChange={(e) => setPassInput(e.target.value)}
+              style={{background: '#000', border: '1px solid #444', color: '#fff', padding: '12px', borderRadius: '6px', width: '100%', marginBottom: '15px', outline: 'none'}}
+              autoFocus
+            />
+            <button type="submit" className="btn-primary" style={{width: '100%', padding: '12px'}}>Acessar Engine</button>
+            {loginError && <p style={{color: '#ff4444', marginTop: '15px', fontSize: '13px'}}>{loginError}</p>}
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="app-container">
