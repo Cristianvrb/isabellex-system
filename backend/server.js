@@ -371,19 +371,28 @@ async function executarAgendados() {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // BOOT — INICIA SERVIDOR + MOTOR DE POSTAGEM
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// ◈ ENDPOINT DE WEBHOOK PARA N8N / MAKE.COM ◈
+// Acione essa URL (GET) a cada 1 minuto no seu n8n para a Isabellex verificar e postar.
+app.get('/api/cron/trigger', async (req, res) => {
+  try {
+    const agora = new Date();
+    console.log(`◈ [${agora.toLocaleTimeString('pt-BR')}] [n8n Webhook] Acionando pipeline de posts...`);
+    await executarAgendados();
+    res.json({ success: true, message: 'Pipeline verificado e executado com sucesso.', timestamp: agora });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 const PORT = process.env.PORT || 3010;
 app.listen(PORT, () => {
   console.log(`◈ ═══════════════════════════════════════════`);
   console.log(`◈  ISABELLEX CLOUD — SERVIDOR + MOTOR`);
   console.log(`◈  API: http://0.0.0.0:${PORT}`);
-  console.log(`◈  Motor de postagem: ATIVO (a cada 60s)`);
+  console.log(`◈  Webhook p/ n8n: GET http://0.0.0.0:${PORT}/api/cron/trigger`);
   console.log(`◈ ═══════════════════════════════════════════`);
   
-  // Inicia o motor de postagem automática
+  // Executa uma vez ao ligar o servidor
   executarAgendados();
-  setInterval(() => {
-    const agora = new Date();
-    console.log(`◈ [${agora.toLocaleTimeString('pt-BR')}] Checando agenda no Supabase...`);
-    executarAgendados();
-  }, 60 * 1000);
 });
