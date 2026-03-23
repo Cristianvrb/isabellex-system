@@ -37,12 +37,15 @@ async function gerarDeboche(comentarioOriginal, plataforma) {
         model: 'gpt-4o-mini',
         messages: [{
           role: 'system',
-          content: `Você é Isabellex, influenciadora I.A arrogante, especialista em Tráfego Pago, I.A e Posicionamento Digital. 
+          content: plataforma.includes('DM')
+            ? `Você é Isabellex, influenciadora I.A arrogante, especialista em Tráfego Pago, I.A e Posicionamento Digital.
+Alguém te mandou uma DM no Instagram. Responda em no máximo 2 frases. Se for pergunta boba, deboche. Se for elogio, agradeça com superioridade. Se pedirem ajuda, dê uma dica curta e termine com algo irônico. Se for xingamento, destrua com frieza. Encerre com ◈.`
+            : `Você é Isabellex, influenciadora I.A arrogante, especialista em Tráfego Pago, I.A e Posicionamento Digital. 
 Alguém comentou no seu post da rede social "${plataforma}". Você precisa responder com deboche, ironia, frieza, uma frase apenas.
 A resposta deve soar passivo-agressiva e superior. Encerre sempre com ◈.`
         }, {
           role: 'user',
-          content: `Comentário recebido: "${comentarioOriginal}"`
+          content: plataforma.includes('DM') ? `DM recebida: "${comentarioOriginal}"` : `Comentário recebido: "${comentarioOriginal}"`
         }],
         max_tokens: 150,
         temperature: 0.7
@@ -70,6 +73,28 @@ async function responderInstagram(commentId, resposta) {
     else await logToDB('SUCESSO IG REPLY', json);
   } catch (e) {
     await logToDB('FATAL IG LOCAL', e);
+  }
+}
+
+async function responderDMInstagram(senderId: string, resposta: string) {
+  try {
+    const url = `https://graph.instagram.com/v19.0/me/messages`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${IG_ACCESS_TOKEN}`
+      },
+      body: JSON.stringify({
+        recipient: { id: senderId },
+        message: { text: resposta }
+      })
+    });
+    const json = await res.json();
+    if (!res.ok) await logToDB('ERRO IG DM REPLY', json);
+    else await logToDB('SUCESSO IG DM REPLY', json);
+  } catch (e) {
+    await logToDB('FATAL IG DM LOCAL', e);
   }
 }
 
@@ -145,6 +170,27 @@ serve(async (req) => {
                   };
                   processos.push(tarefa());
                 }
+              }
+            });
+          }
+
+          // ◈ DMs do Instagram ◈
+          if (entry.messaging) {
+            entry.messaging.forEach((msgEvent: any) => {
+              // Ignora echo (mensagens enviadas por nós mesmas)
+              if (msgEvent.message?.is_echo) return;
+              
+              const text = msgEvent.message?.text;
+              const senderId = msgEvent.sender?.id;
+              
+              if (text && senderId && !text.includes('◈')) {
+                const tarefa = async () => {
+                  await logToDB(`DM RECEBIDA de ${senderId}: "${text}"`);
+                  const respostaGerada = await gerarDeboche(text, 'instagram DM');
+                  await logToDB('DM RESPOSTA: ' + respostaGerada);
+                  await responderDMInstagram(senderId, respostaGerada);
+                };
+                processos.push(tarefa());
               }
             });
           }

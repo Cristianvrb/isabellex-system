@@ -292,6 +292,291 @@ app.delete('/api/agenda/:id', async (req, res) => {
   }
 });
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// HORIZONTE 1 & 2 — MONETIZAÇÃO + ENGAJAMENTO
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// ◈ TABELA DE AFILIADOS — injeta links no conteúdo ◈
+const AFILIADOS = {
+  'n8n':          { url: process.env.LINK_N8N           || 'https://n8n.io', label: ' → n8n.io' },
+  'make':         { url: process.env.LINK_MAKE          || 'https://make.com', label: ' → make.com' },
+  'make.com':     { url: process.env.LINK_MAKE          || 'https://make.com', label: '' },
+  'ideogram':     { url: process.env.LINK_IDEOGRAM      || 'https://ideogram.ai', label: ' → ideogram.ai' },
+  'notion':       { url: process.env.LINK_NOTION        || 'https://notion.so', label: '' },
+};
+
+function injetarAfiliados(texto) {
+  if (!texto) return texto;
+  let result = texto;
+  for (const [keyword, af] of Object.entries(AFILIADOS)) {
+    const regex = new RegExp(`\\b${keyword}\\b`, 'gi');
+    if (regex.test(result)) {
+      // Só injeta o link se não tiver já um link no texto
+      if (!result.includes(af.url)) {
+        result = result + `\n${af.url}${af.label}`;
+        break; // só 1 link por post para não parecer spam
+      }
+    }
+  }
+  return result;
+}
+
+// ◈ LISTA DE ESPERA — Morte do Guru ◈
+app.post('/api/lista-espera', async (req, res) => {
+  try {
+    const { nome, email } = req.body;
+    if (!email) return res.status(400).json({ error: 'Email obrigatório' });
+
+    const { error } = await supabase.from('lista_espera').upsert({
+      email: email.toLowerCase().trim(),
+      nome: nome || null,
+      criado_em: new Date().toISOString()
+    }, { onConflict: 'email' });
+
+    if (error && !error.message.includes('duplicate')) throw error;
+
+    console.log(`◈ [LISTA] Nova entrada: ${email}`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('◈ [LISTA] Erro:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/lista-espera', async (req, res) => {
+  const { data } = await supabase.from('lista_espera').select('*').order('criado_em', { ascending: false });
+  res.json(data || []);
+});
+
+// ◈ GERADOR DE FOTO — IDEOGRAM API ◈
+app.post('/api/gerar-foto', async (req, res) => {
+  try {
+    const { prompt, agenda_id } = req.body;
+    const apiKey = process.env.IDEOGRAM_API_KEY;
+    if (!apiKey) return res.status(500).json({ error: 'IDEOGRAM_API_KEY não configurada' });
+
+    const promptFinal = prompt || 'Realistic selfie photo of a 25-year-old brazilian woman, dark short hair, minimalist dark apartment in São Paulo, professional but casual, natural lighting, photo taken on iPhone, candid style, no studio lights. Ultra realistic, 4k.';
+
+    const response = await fetch('https://api.ideogram.ai/generate', {
+      method: 'POST',
+      headers: { 'Api-Key': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        image_request: {
+          prompt: promptFinal,
+          aspect_ratio: 'ASPECT_9_16',
+          model: 'V_2',
+          magic_prompt_option: 'OFF',
+          style_type: 'REALISTIC'
+        }
+      })
+    });
+
+    const data = await response.json();
+    const imageUrl = data?.data?.[0]?.url;
+    if (!imageUrl) throw new Error('Ideogram não retornou imagem: ' + JSON.stringify(data));
+
+    // Atualiza a agenda com a imagem gerada
+    if (agenda_id) {
+      await supabase.from('agenda').update({
+        imagem_url: imageUrl,
+        status: 'validado'
+      }).eq('id', agenda_id);
+      console.log(`◈ [IDEOGRAM] ✅ Foto gerada e salva para ${agenda_id}`);
+    }
+
+    res.json({ success: true, url: imageUrl });
+  } catch (err) {
+    console.error('◈ [IDEOGRAM] Erro:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ◈ GERAR TODAS AS FOTOS PENDENTES DA SEMANA ◈
+app.post('/api/gerar-fotos-semana', async (req, res) => {
+  try {
+    const apiKey = process.env.IDEOGRAM_API_KEY;
+    if (!apiKey) return res.status(500).json({ error: 'IDEOGRAM_API_KEY não configurada' });
+
+    const { data: pendentes } = await supabase
+      .from('agenda')
+      .select('*')
+      .eq('status', 'agendado_foto_pendente')
+      .order('scheduled_for', { ascending: true });
+
+    res.json({ success: true, total: pendentes?.length || 0, mensagem: 'Gerando em background...' });
+
+    // Processa em background sem bloquear a resposta
+    (async () => {
+      for (const item of (pendentes || [])) {
+        try {
+          const cena = item.cena_foto || 'Selfie de mulher brasileira, apartamento escuro em SP, estética minimalista, foto de iPhone, iluminação natural';
+          const prompt = `Realistic selfie of a 25-year-old brazilian woman with dark short hair: ${cena}. Candid iPhone photo, ultra realistic, no studio lighting.`;
+
+          const resp = await fetch('https://api.ideogram.ai/generate', {
+            method: 'POST',
+            headers: { 'Api-Key': apiKey, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              image_request: { prompt, aspect_ratio: 'ASPECT_9_16', model: 'V_2', magic_prompt_option: 'OFF', style_type: 'REALISTIC' }
+            })
+          });
+
+          const data = await resp.json();
+          const imageUrl = data?.data?.[0]?.url;
+          if (imageUrl) {
+            await supabase.from('agenda').update({ imagem_url: imageUrl, status: 'validado' }).eq('id', item.id);
+            console.log(`◈ [IDEOGRAM] ✅ ${item.id} — foto gerada`);
+          }
+        } catch (e) {
+          console.error(`◈ [IDEOGRAM] ❌ ${item.id}:`, e.message);
+        }
+        await new Promise(r => setTimeout(r, 3000)); // Rate limit gentil
+      }
+      console.log('◈ [IDEOGRAM] 🎉 Todas as fotos geradas!');
+    })();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ◈ THREADS EM CASCATA ◈
+// Posta 3 posts encadeados (gancho → desenvolvimento → CTA) usando reply_to_id
+app.post('/api/threads/cascata', async (req, res) => {
+  try {
+    const { partes } = req.body; // array de strings, mín 2, máx 5
+    if (!partes || partes.length < 2) return res.status(400).json({ error: 'Mínimo 2 partes' });
+
+    const token = process.env.THREADS_ACCESS_TOKEN;
+    const userId = process.env.THREADS_USER_ID;
+
+    // 1. Posta o primeiro post (raiz)
+    const c1 = await fetch(`https://graph.threads.net/v1.0/me/threads`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ media_type: 'TEXT', text: partes[0], access_token: token })
+    });
+    const { id: cId1 } = await c1.json();
+    const p1 = await fetch(`https://graph.threads.net/v1.0/me/threads_publish`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ creation_id: cId1, access_token: token })
+    });
+    const { id: postId1 } = await p1.json();
+    console.log(`◈ [CASCATA] ✅ Parte 1 publicada: ${postId1}`);
+
+    let lastPostId = postId1;
+    const idsPublicados = [postId1];
+
+    // 2. Encadeia as demais partes
+    for (let i = 1; i < partes.length; i++) {
+      await new Promise(r => setTimeout(r, 4000)); // espera 4s entre cada
+      const cReply = await fetch(`https://graph.threads.net/v1.0/me/threads`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ media_type: 'TEXT', text: partes[i], reply_to_id: lastPostId, access_token: token })
+      });
+      const { id: cIdReply } = await cReply.json();
+      const pReply = await fetch(`https://graph.threads.net/v1.0/me/threads_publish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ creation_id: cIdReply, access_token: token })
+      });
+      const { id: replyId } = await pReply.json();
+      lastPostId = replyId;
+      idsPublicados.push(replyId);
+      console.log(`◈ [CASCATA] ✅ Parte ${i + 1} encadeada: ${replyId}`);
+    }
+
+    res.json({ success: true, ids: idsPublicados });
+  } catch (err) {
+    console.error('◈ [CASCATA] Erro:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ◈ AUTO-REPLY NO THREADS ◈
+// Verifica replies e responde com a voz da Isabellex via GPT — roda a cada 5 min
+const SYSTEM_REPLY = `Você é isabellex — IA influencer, irônica, seca, cortante.
+Responda o comentário abaixo em no máximo 2 frases. Tom: sarcástico mas não agressivo.
+Nunca seja fofa. Nunca use emojis de coração. Termine com ◈ se achar adequado.`;
+
+async function verificarRepliesThreads() {
+  try {
+    const token = process.env.THREADS_ACCESS_TOKEN;
+    const userId = process.env.THREADS_USER_ID;
+    if (!token || !userId) {
+      console.log('◈ [THREADS-REPLY] Token ou userId não configurado. Pulando.');
+      return 0;
+    }
+
+    // Busca respostas nos últimos posts
+    const postsResp = await fetch(
+      `https://graph.threads.net/v1.0/${userId}/threads?fields=id,text,timestamp,replies{id,text,username}&access_token=${token}&limit=5`
+    );
+    const postsData = await postsResp.json();
+    const posts = postsData?.data || [];
+
+    let respondidos = 0;
+    for (const post of posts) {
+      const replies = post.replies?.data || [];
+      for (const reply of replies) {
+        // Verifica se já respondemos esse reply (evita loop)
+        const { data: jaRespondeu } = await supabase
+          .from('replies_respondidos')
+          .select('id')
+          .eq('thread_reply_id', reply.id)
+          .single();
+
+        if (jaRespondeu) continue;
+        if (!reply.text || reply.text.length < 5) continue;
+        // Anti-loop: não responder a si mesma
+        if (reply.text.includes('◈')) continue;
+
+        // Gera resposta
+        const gpt = await openai.chat.completions.create({
+          model: 'gpt-4o-mini',
+          max_tokens: 100,
+          messages: [
+            { role: 'system', content: SYSTEM_REPLY },
+            { role: 'user', content: `Comentário de @${reply.username || 'alguém'}: "${reply.text}"` }
+          ]
+        });
+        const resposta = gpt.choices[0].message.content.trim();
+
+        // Posta a resposta encadeada
+        const cResp = await fetch('https://graph.threads.net/v1.0/me/threads', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ media_type: 'TEXT', text: resposta, reply_to_id: reply.id, access_token: token })
+        });
+        const { id: cId } = await cResp.json();
+        await fetch('https://graph.threads.net/v1.0/me/threads_publish', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ creation_id: cId, access_token: token })
+        });
+
+        // Registra como respondido
+        await supabase.from('replies_respondidos').insert({ thread_reply_id: reply.id, respondido_em: new Date().toISOString() });
+        respondidos++;
+        console.log(`◈ [THREADS-REPLY] ✅ Respondido: ${reply.id}`);
+        await new Promise(r => setTimeout(r, 3000));
+      }
+    }
+
+    if (respondidos > 0) console.log(`◈ [THREADS-REPLY] Ciclo concluído: ${respondidos} novas respostas.`);
+    return respondidos;
+  } catch (err) {
+    console.error('◈ [THREADS-REPLY] Erro:', err.message);
+    return 0;
+  }
+}
+
+// Endpoint manual (fallback)
+app.post('/api/threads/responder-mencoes', async (req, res) => {
+  const respondidos = await verificarRepliesThreads();
+  res.json({ success: true, respondidos });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // KANBAN DE REELS — A Isabellex Gera, o Criador Grava
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -478,7 +763,8 @@ async function executarAgendados() {
     let sucesso = false;
     try {
       if (row.tipo === 'threads') {
-        const postId = await tdc.dispararPost(row.conteudo);
+        const conteudoFinal = injetarAfiliados(row.conteudo);
+        const postId = await tdc.dispararPost(conteudoFinal);
         if (postId) {
           await atualizarStatus(row.id, { status: 'publicado' });
           console.log(`◈ [THREADS] ✅ PUBLICADO! ID: ${postId}`);
@@ -491,7 +777,8 @@ async function executarAgendados() {
         if (result) {
           await atualizarStatus(row.id, { status: 'publicado' });
           console.log(`◈ [FEED] ✅ PUBLICADO! ID: ${result.id}`);
-          const tid = await tdc.dispararPost(row.conteudo);
+          const textoThreads = injetarAfiliados(row.conteudo);
+          const tid = await tdc.dispararPost(textoThreads);
           if (tid) console.log(`◈ [FEED→THREADS] ✅ Cross-post ID: ${tid}`);
           sucesso = true;
           errosSeguidos = 0;
@@ -631,6 +918,11 @@ app.listen(PORT, () => {
   // Verificação de token a cada 7 dias
   verificarTokenInstagram();
   setInterval(verificarTokenInstagram, 7 * 24 * 60 * 60 * 1000);
+
+  // ◈ AUTO-REPLY THREADS — polling a cada 5 minutos
+  verificarRepliesThreads();
+  setInterval(verificarRepliesThreads, 5 * 60 * 1000);
+  console.log('◈  Threads auto-reply: ✅ (polling 5min)');
 });
 
 
