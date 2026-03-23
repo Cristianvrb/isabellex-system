@@ -507,16 +507,32 @@ async function verificarRepliesThreads() {
       return 0;
     }
 
-    // Busca respostas nos últimos posts
+    // Busca últimos posts (Threads API — SEM nested fields)
     const postsResp = await fetch(
-      `https://graph.threads.net/v1.0/${userId}/threads?fields=id,text,timestamp,replies{id,text,username}&access_token=${token}&limit=5`
+      `https://graph.threads.net/v1.0/${userId}/threads?fields=id,text,timestamp&access_token=${token}&limit=5`
     );
     const postsData = await postsResp.json();
+    if (postsData?.error) {
+      console.error('◈ [THREADS-REPLY] Erro API posts:', postsData.error.message);
+      return 0;
+    }
     const posts = postsData?.data || [];
 
     let respondidos = 0;
     for (const post of posts) {
-      const replies = post.replies?.data || [];
+      // Busca replies de cada post separadamente (endpoint correto da Threads API)
+      let replies = [];
+      try {
+        const repliesResp = await fetch(
+          `https://graph.threads.net/v1.0/${post.id}/replies?fields=id,text,username,timestamp&access_token=${token}`
+        );
+        const repliesData = await repliesResp.json();
+        replies = repliesData?.data || [];
+      } catch (e) {
+        console.error(`◈ [THREADS-REPLY] Erro buscando replies do post ${post.id}:`, e.message);
+        continue;
+      }
+
       for (const reply of replies) {
         // Verifica se já respondemos esse reply (evita loop)
         const { data: jaRespondeu } = await supabase
